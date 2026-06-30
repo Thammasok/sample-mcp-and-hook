@@ -229,7 +229,7 @@ To use this MCP server with an AI client (like Claude Desktop), add it to your M
   "mcpServers": {
     "sample-mcp": {
       "command": "node",
-      "args": ["/path/to/sample-mcp/dist/index.js"]
+      "args": ["/path/to/sample-mcp/dist/main.js"]
     }
   }
 }
@@ -240,7 +240,10 @@ To use this MCP server with an AI client (like Claude Desktop), add it to your M
 ```text
 sample-mcp/
 ├── src/
-│   └── index.ts      # Main MCP server implementation
+│   ├── main.ts       # Main entry point and server setup
+│   ├── tools.ts      # Tool definitions (greet, add)
+│   ├── resources.ts  # Resource definitions (config, user-profile)
+│   └── prompts.ts    # Prompt definitions (explain-code, review-code)
 ├── dist/             # Compiled JavaScript output
 ├── package.json      # Project dependencies and scripts
 ├── tsconfig.json     # TypeScript configuration
