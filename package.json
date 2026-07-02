@@ -9,17 +9,24 @@
   "scripts": {
     "build": "tsc",
     "start": "node dist/main.js",
-    "dev": "tsc --watch"
+    "start:web": "node dist/web-server.js",
+    "dev": "tsc --watch",
+    "dev:web": "node --watch dist/web-server.js"
   },
-  "keywords": ["mcp", "model-context-protocol"],
+  "keywords": [
+    "mcp",
+    "model-context-protocol"
+  ],
   "author": "",
   "license": "ISC",
   "description": "A sample MCP server built with Node.js and TypeScript",
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",
+    "express": "^5.2.1",
     "zod": "^4.4.3"
   },
   "devDependencies": {
+    "@types/express": "^5.0.6",
     "@types/node": "^26.0.1",
     "typescript": "^6.0.3"
   }
