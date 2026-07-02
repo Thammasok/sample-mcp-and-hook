@@ -77,6 +77,40 @@ app.use((req: Request, _res: Response, next: NextFunction) => {
   next()
 })
 
+// ─── Cost estimation ─────────────────────────────────────────────────────────
+
+// [input $/M, output $/M, cache_read $/M, cache_write $/M]
+const MODEL_PRICING: Record<string, [number, number, number, number]> = {
+  'claude-opus-4':     [15,   75,   1.50,  18.75],
+  'claude-sonnet-4':   [3,    15,   0.30,  3.75],
+  'claude-haiku-4':    [0.8,  4,    0.08,  1.00],
+  'claude-3-5-sonnet': [3,    15,   0.30,  3.75],
+  'claude-3-5-haiku':  [0.8,  4,    0.08,  1.00],
+  'claude-3-opus':     [15,   75,   1.50,  18.75],
+  'claude-3-sonnet':   [3,    15,   0.30,  3.75],
+  'claude-3-haiku':    [0.25, 1.25, 0.025, 0.30],
+}
+
+function estimateCost(model: string, tokens: TokenUsage): number | undefined {
+  if (!tokens.input && !tokens.output) return undefined
+  const lm = model.toLowerCase()
+  let pricing: [number, number, number, number] | undefined
+  for (const [key, p] of Object.entries(MODEL_PRICING)) {
+    if (lm.includes(key)) {
+      pricing = p
+      break
+    }
+  }
+  if (!pricing) return undefined
+  const [ip, op, crp, cwp] = pricing
+  return (
+    (tokens.input ?? 0) * ip +
+    (tokens.output ?? 0) * op +
+    (tokens.cache_read ?? 0) * crp +
+    (tokens.cache_write ?? 0) * cwp
+  ) / 1_000_000
+}
+
 // ─── Normalizers ─────────────────────────────────────────────────────────────
 
 function normalizeClaudePayload(body: Record<string, unknown>): Partial<AIHookLog> {
@@ -145,11 +179,26 @@ function normalizeClaudeCodePayload(body: Record<string, unknown>): Partial<AIHo
     event = hookEventMap[key] ?? key
   }
 
+  const inputTokens = body.input_tokens as number | undefined
+  const outputTokens = body.output_tokens as number | undefined
+  const cacheReadTokens = body.cache_read_tokens as number | undefined
+  const cacheWriteTokens = body.cache_write_tokens as number | undefined
+  const hasTokens = (inputTokens ?? 0) > 0 || (outputTokens ?? 0) > 0
+
   return {
     provider: 'claudecode',
     model: (body.model as string | undefined) ?? 'claude-code',
     event,
     session_id: body.session_id as string | undefined,
+    tokens: hasTokens
+      ? {
+          input: inputTokens,
+          output: outputTokens,
+          cache_read: cacheReadTokens,
+          cache_write: cacheWriteTokens,
+          total: (inputTokens ?? 0) + (outputTokens ?? 0),
+        }
+      : undefined,
     metadata: {
       ...(typeof body.prompt === 'string' ? { prompt_length: body.prompt.length } : {}),
       ...(typeof body.hook_event_name === 'string' ? { hook_event: body.hook_event_name } : {}),
@@ -183,7 +232,7 @@ function detectAndNormalize(body: Record<string, unknown>): Partial<AIHookLog> {
 
 function buildLog(body: Record<string, unknown>): AIHookLog {
   const normalized = detectAndNormalize(body)
-  return {
+  const log: AIHookLog = {
     id: `log_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
     received_at: new Date().toISOString(),
     provider: 'unknown',
@@ -197,6 +246,11 @@ function buildLog(body: Record<string, unknown>): AIHookLog {
     raw: body,
     ...normalized,
   }
+  // Estimate cost from token counts when not already provided
+  if (!log.cost_usd && log.tokens) {
+    log.cost_usd = estimateCost(log.model, log.tokens)
+  }
+  return log
 }
 
 function appendLog(log: AIHookLog): void {
@@ -254,6 +308,8 @@ app.get('/api/stats', (_req: Request, res: Response) => {
       total_input_tokens: number
       total_output_tokens: number
       total_tokens: number
+      total_cache_read_tokens: number
+      total_cache_write_tokens: number
       total_cost_usd: number
       total_duration_ms: number
     }
@@ -269,6 +325,8 @@ app.get('/api/stats', (_req: Request, res: Response) => {
         total_input_tokens: 0,
         total_output_tokens: 0,
         total_tokens: 0,
+        total_cache_read_tokens: 0,
+        total_cache_write_tokens: 0,
         total_cost_usd: 0,
         total_duration_ms: 0,
       })
@@ -278,6 +336,8 @@ app.get('/api/stats', (_req: Request, res: Response) => {
     stat.total_input_tokens += log.tokens?.input ?? 0
     stat.total_output_tokens += log.tokens?.output ?? 0
     stat.total_tokens += log.tokens?.total ?? 0
+    stat.total_cache_read_tokens += log.tokens?.cache_read ?? 0
+    stat.total_cache_write_tokens += log.tokens?.cache_write ?? 0
     stat.total_cost_usd += log.cost_usd ?? 0
     stat.total_duration_ms += log.duration_ms ?? 0
   }

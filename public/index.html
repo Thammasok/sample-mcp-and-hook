@@ -340,6 +340,7 @@
   <div class="stat"><div class="stat-label">Providers</div><div class="stat-value" id="s-providers">—</div><div class="stat-sub" id="s-provider-list" style="display:flex;flex-wrap:wrap;gap:4px;margin-top:2px"></div></div>
   <div class="stat"><div class="stat-label">Input tokens</div><div class="stat-value" id="s-tokens-in">—</div></div>
   <div class="stat"><div class="stat-label">Output tokens</div><div class="stat-value" id="s-tokens-out">—</div></div>
+  <div class="stat"><div class="stat-label">Cache read</div><div class="stat-value" id="s-cache-read">—</div><div class="stat-sub" id="s-cache-pct"></div></div>
   <div class="stat"><div class="stat-label">Est. cost</div><div class="stat-value" id="s-cost">—</div><div class="stat-sub">USD</div></div>
   <div class="stat"><div class="stat-label">Top model</div><div class="stat-value" style="font-size:1rem;font-family:ui-monospace,monospace" id="s-top-model">—</div></div>
 </div>
@@ -368,10 +369,10 @@
         <th>Provider</th>
         <th>Model</th>
         <th>Event</th>
-        <th style="text-align:right">In</th>
-        <th style="text-align:right">Out</th>
+        <th style="text-align:right">Input</th>
+        <th style="text-align:right">Output</th>
         <th style="text-align:right">Total</th>
-        <th style="text-align:right">Cost $</th>
+        <th style="text-align:right">Cost</th>
         <th>Session</th>
       </tr>
     </thead>
@@ -396,7 +397,9 @@
   }
 
   function fmtCost(v) {
-    if (v === undefined || v === null || v === 0) return '<span style="color:var(--muted)">—</span>'
+    if (!v) return '<span style="color:var(--muted)">—</span>'
+    if (v < 0.0001) return '<span style="color:var(--muted)"><$0.0001</span>'
+    if (v < 0.01)   return '$' + v.toFixed(5)
     return '$' + v.toFixed(4)
   }
 
@@ -472,13 +475,22 @@
       document.getElementById('s-providers').textContent = providers.length
       document.getElementById('s-provider-list').innerHTML = providers.map(providerBadge).join('')
 
-      const totalIn  = stats.reduce((a, s) => a + (s.total_input_tokens || 0), 0)
-      const totalOut = stats.reduce((a, s) => a + (s.total_output_tokens || 0), 0)
-      const totalCost = stats.reduce((a, s) => a + (s.total_cost_usd || 0), 0)
+      const totalIn        = stats.reduce((a, s) => a + (s.total_input_tokens || 0), 0)
+      const totalOut       = stats.reduce((a, s) => a + (s.total_output_tokens || 0), 0)
+      const totalCacheRead = stats.reduce((a, s) => a + (s.total_cache_read_tokens || 0), 0)
+      const totalCost      = stats.reduce((a, s) => a + (s.total_cost_usd || 0), 0)
 
       document.getElementById('s-tokens-in').textContent  = totalIn  ? Number(totalIn).toLocaleString()  : '—'
       document.getElementById('s-tokens-out').textContent = totalOut ? Number(totalOut).toLocaleString() : '—'
-      document.getElementById('s-cost').textContent = totalCost ? '$' + totalCost.toFixed(4) : '—'
+
+      document.getElementById('s-cache-read').textContent = totalCacheRead ? Number(totalCacheRead).toLocaleString() : '—'
+      const effIn = totalIn + totalCacheRead
+      document.getElementById('s-cache-pct').textContent =
+        effIn > 0 ? Math.round(totalCacheRead / effIn * 100) + '% of effective input' : ''
+
+      document.getElementById('s-cost').textContent = totalCost
+        ? '$' + (totalCost < 0.01 ? totalCost.toFixed(5) : totalCost.toFixed(4))
+        : '—'
 
       // top model = most calls among entries that have real token data (or any named model != 'claude-code')
       const realModels = stats.filter(s => s.total_tokens > 0 || s.model !== 'claude-code')
@@ -529,12 +541,18 @@
 
       tbody.innerHTML = d.logs.map(log => {
         const t = log.tokens || {}
+        const cacheHint = t.cache_read > 0
+          ? ` title="Input: ${(t.input||0).toLocaleString()} direct\nCache read: ${(t.cache_read||0).toLocaleString()}\nCache write: ${(t.cache_write||0).toLocaleString()}"`
+          : ''
+        const cacheLabel = t.cache_read > 0
+          ? `<br><span style="font-size:.63rem;color:var(--muted)">${fmt(t.cache_read)} cached</span>`
+          : ''
         return `<tr>
           <td class="col-time" title="${log.received_at}">${fmtAbsTime(log.received_at)}<br><span style="font-size:.65rem;opacity:.6">${relTime(log.received_at)}</span></td>
           <td>${providerBadge(log.provider)}</td>
           <td class="col-model">${log.model}</td>
           <td>${eventPill(log.event)}</td>
-          <td class="col-num">${numFmt(t.input)}</td>
+          <td class="col-num"${cacheHint}>${numFmt(t.input)}${cacheLabel}</td>
           <td class="col-num">${numFmt(t.output)}</td>
           <td class="col-num">${numFmt(t.total)}</td>
           <td class="col-cost">${fmtCost(log.cost_usd)}</td>

@@ -19,7 +19,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "INPUT=$(cat); _m=$(jq -r '.model // empty' .claude/settings.json 2>/dev/null); _m=${_m:-$(jq -r '.model // empty' ~/.claude/settings.json 2>/dev/null)}; _m=${_m:-claude-code}; echo \"$INPUT\" | jq --arg m \"$_m\" '. + {model: $m}' | curl -sf -X POST \"${AI_HOOK_URL}\" -H 'Content-Type: application/json' -d @- 2>/dev/null || true",
+            "command": "bash scripts/ai-hook.sh",
             "async": true,
             "statusMessage": "Logging AI usage..."
           }
