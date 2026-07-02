@@ -2,8 +2,8 @@
 
 A sample **MCP (Model Context Protocol)** server and an **AI Hook Web Service** built with Node.js and TypeScript.
 
-- **MCP Server** — exposes Tools, Resources, and Prompts to AI clients (Claude Desktop, etc.)
-- **AI Hook Web Service** — HTTP service for logging AI usage events from Claude, OpenAI/Codex, OpenCode, and any other provider (in-memory log, no database required)
+- **MCP Server** — exposes Tools, Resources, and Prompts to AI clients (Claude Desktop, Claude Code, etc.)
+- **AI Hook Web Service** — HTTP service for logging AI usage events from Claude, Claude Code, OpenAI/Codex, OpenCode, and any other provider. Logs are kept in memory and persisted to a JSON file (no database required), with automatic cost estimation and a live web dashboard.
 
 ---
 
@@ -16,10 +16,12 @@ A sample **MCP (Model Context Protocol)** server and an **AI Hook Web Service** 
   - [MCP Core Primitives](#mcp-core-primitives)
   - [Connect to Claude Desktop](#connect-to-claude-desktop)
 - [AI Hook Web Service](#ai-hook-web-service)
-  - [Setup](#setup)
   - [Running the Web Service](#running-the-web-service)
+  - [Web Dashboard](#web-dashboard)
+  - [Logging Claude Code Usage](#logging-claude-code-usage)
   - [Endpoints](#endpoints)
   - [Sending Hooks](#sending-hooks)
+  - [Cost Estimation](#cost-estimation)
   - [Query Logs](#query-logs)
   - [View Stats](#view-stats)
 - [Dependencies](#dependencies)
@@ -29,14 +31,22 @@ A sample **MCP (Model Context Protocol)** server and an **AI Hook Web Service** 
 ## Project Structure
 
 ```text
-sample-mcp/
+sample-mcp-and-hook/
 ├── src/
-│   ├── main.ts         # MCP server entry point
-│   ├── tools.ts        # MCP Tools (greet, add)
-│   ├── resources.ts    # MCP Resources (config, user-profile)
-│   ├── prompts.ts      # MCP Prompts (explain-code, review-code)
-│   └── web-server.ts   # AI Hook Web Service entry point
-├── dist/               # Compiled JavaScript (after build)
+│   ├── main.ts          # MCP server entry point
+│   ├── tools.ts         # MCP Tools (greet, add)
+│   ├── resources.ts     # MCP Resources (config, user-profile)
+│   ├── prompts.ts       # MCP Prompts (explain-code, review-code)
+│   └── web-server.ts    # AI Hook Web Service entry point
+├── public/
+│   └── index.html       # Static web dashboard (AI Hook Monitor)
+├── scripts/
+│   └── ai-hook.sh       # Enriches Claude Code Stop hooks with token usage
+├── .claude/
+│   └── settings.json    # Claude Code hooks + AI_HOOK_URL
+├── .mcp.json            # MCP server registration for Claude Code
+├── logs/                # Persisted hook logs (ai-hooks.json, git-ignored)
+├── dist/                # Compiled JavaScript (after build)
 ├── package.json
 ├── tsconfig.json
 └── README.md
@@ -46,7 +56,7 @@ sample-mcp/
 
 ## Setup
 
-**Prerequisites:** Node.js 18+
+**Prerequisites:** Node.js 18+ (and `jq` + `curl` for the Claude Code hooks)
 
 ```bash
 # Install dependencies
@@ -64,7 +74,7 @@ pnpm build
 
 ```bash
 # Production
-pnpm start
+pnpm start:mcp
 
 # Development (auto-rebuild on change)
 pnpm dev
@@ -102,47 +112,83 @@ Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
   "mcpServers": {
     "sample-mcp": {
       "command": "node",
-      "args": ["/absolute/path/to/sample-mcp/dist/main.js"]
+      "args": ["/absolute/path/to/sample-mcp-and-hook/dist/main.js"]
     }
   }
 }
 ```
 
+For **Claude Code**, the server is already registered in `.mcp.json` (relative path) and enabled in `.claude/settings.local.json` — no manual setup needed once you've run `pnpm build`.
+
 ---
 
 ## AI Hook Web Service
 
-A lightweight HTTP service that receives AI usage events, logs them to the console, and **persists them to `logs/ai-hooks.json`**. Logs survive server restarts — the file is loaded automatically on startup. No database needed.
+A lightweight HTTP service that receives AI usage events, logs them to the console, and **persists them to `logs/ai-hooks.json`**. Logs survive server restarts — the file is loaded automatically on startup. Cost is estimated automatically from token counts, and a live dashboard is served at the root URL. No database needed.
 
-### Setup
+### Running the Web Service
 
-**Step 1 — Start the web service** (keep this running in a separate terminal):
+```bash
+# Production (build first)
+pnpm build
+pnpm start:hook
+
+# Development (watches compiled output)
+pnpm dev          # terminal 1 — recompile on change
+pnpm dev:hook     # terminal 2 — restart server on change
+```
+
+Default port: **3000**. Override with the `PORT` environment variable:
+
+```bash
+PORT=4000 pnpm start:hook
+```
+
+> **Log file:** `logs/ai-hooks.json` (auto-created, already in `.gitignore`). Logs persist across restarts — the file is loaded on startup and rewritten after every hook received. Up to **1000** most-recent entries are retained in memory.
+
+### Web Dashboard
+
+Once the service is running, open the dashboard in your browser:
+
+```
+http://localhost:3000/
+```
+
+The static dashboard (`public/index.html`) visualizes logged events and aggregate stats per provider and model — color-coded by provider (Claude, Claude Code, OpenAI, OpenCode) and event type.
+
+### Logging Claude Code Usage
+
+This repo is preconfigured to log its own Claude Code usage to the web service.
+
+**Step 1 — Start the web service** (keep it running in a separate terminal):
 
 ```bash
 pnpm build
-pnpm start:web
+pnpm start:hook
 # AI Hook Web Service running on http://localhost:3000
 ```
 
-**Step 2 — No model config needed.** The hooks auto-detect your model at runtime by reading:
+**Step 2 — No model config needed.** The hooks auto-detect your model at runtime:
 
-1. `.claude/settings.json` → `model` field (project-level)
-2. `~/.claude/settings.json` → `model` field (user-level)
-3. Falls back to `"claude-code"` if neither is set
+- On **Stop** events, `scripts/ai-hook.sh` reads the session transcript and extracts the exact model plus real token usage (input, output, cache read/write).
+- On **SessionStart** / **UserPromptSubmit** events (no token data available), an inline hook resolves the model from `.claude/settings.json` → `~/.claude/settings.json` → falls back to `"claude-code"`.
 
-So whatever model you have configured in Claude Code (`/config`, `--model` flag, or settings) is automatically tracked — no manual configuration required.
+Whatever model you have configured in Claude Code is tracked automatically — no manual configuration required.
 
-The only env var in `.claude/settings.json` is `AI_HOOK_URL` (the web service endpoint):
+The hooks and endpoint are already wired up in `.claude/settings.json`:
 
 ```json
 {
   "env": {
     "AI_HOOK_URL": "http://localhost:3000/api/hook/claudecode"
+  },
+  "hooks": {
+    "SessionStart":     [ /* inline curl — logs session_start */ ],
+    "UserPromptSubmit": [ /* inline curl — logs prompt_submit */ ],
+    "Stop":             [ { "command": "bash scripts/ai-hook.sh" } ]
   }
 }
 ```
-
-This file is already committed in the repo. Claude Code picks it up automatically — no manual config needed.
 
 **Step 3 — Open Claude Code** in this project directory as usual:
 
@@ -150,9 +196,9 @@ This file is already committed in the repo. Claude Code picks it up automaticall
 claude
 ```
 
-Every session start, user prompt, and Claude response will be logged automatically.
+Every session start, user prompt, and Claude response is logged automatically (asynchronously, so Claude Code is never blocked).
 
-**Step 4 — View the logs** in another terminal:
+**Step 4 — View the logs** in the dashboard or via the API:
 
 ```bash
 # All events from Claude Code
@@ -162,40 +208,19 @@ curl "http://localhost:3000/api/logs?provider=claudecode"
 curl http://localhost:3000/api/stats
 ```
 
-> **Note:** The web service must be running on port 3000 before Claude Code starts. If the service is down, hooks fail silently (Claude Code is not affected).
->
-> **Log file:** `logs/ai-hooks.json` (auto-created, already in `.gitignore`). Logs persist across restarts — the file is loaded on startup and updated after every hook received.
-
----
-
-### Running the Web Service
-
-```bash
-# Production (build first)
-pnpm build
-pnpm start:web
-
-# Development (watches compiled output)
-pnpm dev          # terminal 1 — recompile on change
-pnpm dev:web      # terminal 2 — restart server on change
-```
-
-Default port: **3000**. Override with `PORT` environment variable:
-
-```bash
-PORT=3000 pnpm start:web
-```
+> **Note:** The web service must be running on the configured port before Claude Code starts. If the service is down, hooks fail silently (Claude Code is not affected).
 
 ### Endpoints
 
 | Method | Path | Description |
 |--------|------|-------------|
+| `GET` | `/` | Static web dashboard |
 | `POST` | `/api/hook` | Receive a hook (provider auto-detected from body) |
 | `POST` | `/api/hook/:provider` | Receive a hook with explicit provider name |
 | `GET` | `/api/logs` | List logs (newest first) |
 | `GET` | `/api/stats` | Aggregate stats grouped by provider + model |
 | `DELETE` | `/api/logs` | Clear all logs |
-| `GET` | `/health` | Health check |
+| `GET` | `/health` | Health check (log count, log file path, uptime) |
 
 ---
 
@@ -222,9 +247,9 @@ curl -X POST http://localhost:3000/api/hook \
   }'
 ```
 
-Console output:
+Console output (cost is auto-estimated from tokens):
 ```
-[HOOK] 2026-07-02T06:00:00.000Z | claude     | claude-sonnet-4-6              | in=1200 out=350 total=1550 session=sess_xyz
+[HOOK] 2026-07-02T06:00:00.000Z | claude     | claude-sonnet-4-6              | in=1200 out=350 total=1550 cost=$0.008850 session=sess_xyz
 ```
 
 #### OpenAI / Codex
@@ -285,13 +310,25 @@ curl -X POST http://localhost:3000/api/hook \
 
 ---
 
+### Cost Estimation
+
+When a hook does not include an explicit `cost_usd` (or `cost`), the service estimates it from token counts using built-in per-model pricing (input, output, cache-read, and cache-write rates per million tokens). Pricing is matched by substring against the model name, covering the Claude Opus/Sonnet/Haiku families (v3, v3.5, and v4).
+
+- If an explicit cost is provided in the payload, it is used as-is.
+- If no matching model pricing is found, cost is left unset.
+- Estimated cost appears in the console output, the `cost_usd` log field, and the aggregated stats.
+
+Adjust the `MODEL_PRICING` table in `src/web-server.ts` to add models or update rates.
+
+---
+
 ### Query Logs
 
 ```bash
-# All logs (newest first, default limit 50)
+# All logs (newest first, default limit 50, max 500)
 curl http://localhost:3000/api/logs
 
-# Filter by provider
+# Filter by provider (exact match)
 curl "http://localhost:3000/api/logs?provider=claude"
 
 # Filter by model name (partial match)
@@ -324,6 +361,7 @@ curl -X DELETE http://localhost:3000/api/logs
         "cache_read": 800,
         "total": 1550
       },
+      "cost_usd": 0.00885,
       "request_id": "msg_01abc",
       "raw": { "...": "original payload" }
     }
@@ -339,6 +377,8 @@ curl -X DELETE http://localhost:3000/api/logs
 curl http://localhost:3000/api/stats
 ```
 
+Stats are grouped by `provider` + `model` and sorted by call count (descending).
+
 **Response shape:**
 
 ```json
@@ -352,7 +392,9 @@ curl http://localhost:3000/api/stats
       "total_input_tokens": 18000,
       "total_output_tokens": 5250,
       "total_tokens": 23250,
-      "total_cost_usd": 0,
+      "total_cache_read_tokens": 9600,
+      "total_cache_write_tokens": 0,
+      "total_cost_usd": 0.1328,
       "total_duration_ms": 0
     },
     {
@@ -362,6 +404,8 @@ curl http://localhost:3000/api/stats
       "total_input_tokens": 4000,
       "total_output_tokens": 1600,
       "total_tokens": 5600,
+      "total_cache_read_tokens": 0,
+      "total_cache_write_tokens": 0,
       "total_cost_usd": 0.00112,
       "total_duration_ms": 0
     }

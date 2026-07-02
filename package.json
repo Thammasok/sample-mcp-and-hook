@@ -8,10 +8,10 @@
   },
   "scripts": {
     "build": "tsc",
-    "start": "node dist/main.js",
-    "start:web": "node dist/web-server.js",
+    "start:mcp": "node dist/main.js",
+    "start:hook": "node dist/web-server.js",
     "dev": "tsc --watch",
-    "dev:web": "node --watch dist/web-server.js"
+    "dev:hook": "node --watch dist/web-server.js"
   },
   "keywords": [
     "mcp",
