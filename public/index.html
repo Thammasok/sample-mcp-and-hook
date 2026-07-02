@@ -1,0 +1,588 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>AI Hook Monitor</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:          #0d1117;
+      --surface:     #161b22;
+      --surface-2:   #21262d;
+      --border:      #30363d;
+      --text:        #e6edf3;
+      --muted:       #7d8590;
+      --accent:      #58a6ff;
+      --accent-dim:  #1c2d47;
+
+      --c-claude:    #a78bfa;
+      --c-claude-bg: #1e1435;
+      --c-cc:        #60a5fa;
+      --c-cc-bg:     #0d1f3c;
+      --c-openai:    #34d399;
+      --c-openai-bg: #0a2318;
+      --c-opencode:  #fbbf24;
+      --c-opencode-bg: #27200a;
+      --c-unknown:   #7d8590;
+      --c-unknown-bg: #1a1f26;
+
+      --ev-stop:         #f85149;
+      --ev-stop-bg:      #2d0f0e;
+      --ev-prompt:       #58a6ff;
+      --ev-prompt-bg:    #0d1f3c;
+      --ev-session:      #3fb950;
+      --ev-session-bg:   #0a2318;
+      --ev-message:      #a78bfa;
+      --ev-message-bg:   #1e1435;
+      --ev-completion:   #fbbf24;
+      --ev-completion-bg: #27200a;
+    }
+
+    html { font-size: 14px; }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: system-ui, -apple-system, sans-serif;
+      line-height: 1.5;
+      height: 100vh;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* ── Header ──────────────────────────────────────────────────────────── */
+    header {
+      flex-shrink: 0;
+      z-index: 100;
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      padding: 0 24px;
+      height: 52px;
+      display: flex;
+      align-items: center;
+      gap: 16px;
+    }
+
+    .logo {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 0.95rem;
+      font-weight: 600;
+      letter-spacing: -0.01em;
+      color: var(--text);
+    }
+
+    .logo-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--accent);
+      flex-shrink: 0;
+    }
+    .logo-dot.live { animation: pulse 2s infinite; }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; box-shadow: 0 0 0 0 rgba(88,166,255,.5); }
+      50%       { opacity: .8; box-shadow: 0 0 0 5px rgba(88,166,255,0); }
+    }
+
+    .header-spacer { flex: 1; }
+
+    .header-meta {
+      font-size: 0.75rem;
+      color: var(--muted);
+      font-variant-numeric: tabular-nums;
+    }
+
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 5px 12px;
+      border-radius: 6px;
+      border: 1px solid var(--border);
+      background: var(--surface-2);
+      color: var(--text);
+      font-size: 0.78rem;
+      font-family: inherit;
+      cursor: pointer;
+      transition: background .15s, border-color .15s;
+      white-space: nowrap;
+    }
+    .btn:hover { background: var(--border); border-color: #484f58; }
+    .btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+    .btn-danger { color: #f85149; border-color: #3d1a1a; background: #1c0f0e; }
+    .btn-danger:hover { background: #2d1514; border-color: #5c2020; }
+
+    .btn-active { background: var(--accent-dim); border-color: var(--accent); color: var(--accent); }
+
+    /* ── Stats ───────────────────────────────────────────────────────────── */
+    .stats {
+      flex-shrink: 0;
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+      gap: 1px;
+      background: var(--border);
+      border-bottom: 1px solid var(--border);
+    }
+
+    .stat {
+      background: var(--surface);
+      padding: 16px 24px;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    .stat-label {
+      font-size: 0.7rem;
+      text-transform: uppercase;
+      letter-spacing: .08em;
+      color: var(--muted);
+    }
+
+    .stat-value {
+      font-size: 1.6rem;
+      font-weight: 600;
+      font-variant-numeric: tabular-nums;
+      line-height: 1.2;
+      color: var(--text);
+    }
+
+    .stat-sub {
+      font-size: 0.72rem;
+      color: var(--muted);
+      font-variant-numeric: tabular-nums;
+    }
+
+    /* ── Filters ─────────────────────────────────────────────────────────── */
+    .filters {
+      flex-shrink: 0;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 10px 24px;
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      flex-wrap: wrap;
+    }
+
+    .filter-label {
+      font-size: 0.72rem;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: .06em;
+      margin-right: 4px;
+    }
+
+    .filter-input, .filter-select {
+      padding: 5px 10px;
+      border-radius: 6px;
+      border: 1px solid var(--border);
+      background: var(--surface-2);
+      color: var(--text);
+      font-size: 0.78rem;
+      font-family: inherit;
+      outline: none;
+      transition: border-color .15s;
+    }
+    .filter-input:focus, .filter-select:focus { border-color: var(--accent); }
+    .filter-select { cursor: pointer; }
+
+    .filter-select option { background: var(--surface-2); }
+
+    .filters-spacer { flex: 1; }
+
+    /* ── Table ───────────────────────────────────────────────────────────── */
+    .table-wrap {
+      flex: 1;
+      overflow: auto;
+      min-height: 0;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.8rem;
+    }
+
+    th {
+      position: sticky;
+      top: 0;
+      z-index: 50;
+      background: var(--surface);
+      color: var(--muted);
+      font-weight: 500;
+      font-size: 0.7rem;
+      text-transform: uppercase;
+      letter-spacing: .07em;
+      padding: 8px 16px;
+      text-align: left;
+      border-bottom: 1px solid var(--border);
+      white-space: nowrap;
+    }
+
+    td {
+      padding: 9px 16px;
+      border-bottom: 1px solid var(--border);
+      vertical-align: middle;
+      white-space: nowrap;
+    }
+
+    tr:hover td { background: var(--surface); }
+
+    .col-time  { color: var(--muted); font-variant-numeric: tabular-nums; font-size: 0.72rem; font-family: ui-monospace, monospace; }
+    .col-model { font-family: ui-monospace, monospace; font-size: 0.78rem; color: var(--text); }
+    .col-num   { font-variant-numeric: tabular-nums; font-family: ui-monospace, monospace; text-align: right; color: var(--muted); }
+    .col-num span { color: var(--text); }
+    .col-session { font-family: ui-monospace, monospace; font-size: 0.7rem; color: var(--muted); max-width: 120px; overflow: hidden; text-overflow: ellipsis; }
+    .col-cost  { font-variant-numeric: tabular-nums; font-family: ui-monospace, monospace; text-align: right; }
+
+    /* provider badge */
+    .badge {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 4px;
+      font-size: 0.7rem;
+      font-weight: 600;
+      letter-spacing: .03em;
+      text-transform: lowercase;
+    }
+    .badge-claude    { background: var(--c-claude-bg);    color: var(--c-claude); }
+    .badge-claudecode { background: var(--c-cc-bg);       color: var(--c-cc); }
+    .badge-openai    { background: var(--c-openai-bg);    color: var(--c-openai); }
+    .badge-opencode  { background: var(--c-opencode-bg);  color: var(--c-opencode); }
+    .badge-unknown   { background: var(--c-unknown-bg);   color: var(--c-unknown); }
+
+    /* event pill */
+    .pill {
+      display: inline-block;
+      padding: 1px 7px;
+      border-radius: 20px;
+      font-size: 0.68rem;
+      font-weight: 500;
+    }
+    .pill-stop       { background: var(--ev-stop-bg);       color: var(--ev-stop); }
+    .pill-prompt_submit { background: var(--ev-prompt-bg);  color: var(--ev-prompt); }
+    .pill-session_start { background: var(--ev-session-bg); color: var(--ev-session); }
+    .pill-message    { background: var(--ev-message-bg);    color: var(--ev-message); }
+    .pill-completion { background: var(--ev-completion-bg); color: var(--ev-completion); }
+    .pill-default    { background: var(--surface-2);        color: var(--muted); }
+
+    /* ── Empty / Loading ─────────────────────────────────────────────────── */
+    .empty {
+      padding: 64px 24px;
+      text-align: center;
+      color: var(--muted);
+    }
+    .empty-icon { font-size: 2rem; margin-bottom: 12px; opacity: .4; }
+    .empty-title { font-weight: 500; margin-bottom: 4px; }
+    .empty-sub { font-size: 0.78rem; }
+
+    /* ── Provider breakdown ──────────────────────────────────────────────── */
+    .providers-row {
+      display: flex;
+      gap: 6px;
+      flex-wrap: wrap;
+    }
+
+    /* ── Toast ───────────────────────────────────────────────────────────── */
+    #toast {
+      position: fixed;
+      bottom: 24px;
+      right: 24px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 10px 16px;
+      font-size: 0.8rem;
+      color: var(--text);
+      transform: translateY(80px);
+      opacity: 0;
+      transition: transform .25s, opacity .25s;
+      z-index: 999;
+      pointer-events: none;
+    }
+    #toast.show { transform: translateY(0); opacity: 1; }
+
+    /* ── Scrollbar ───────────────────────────────────────────────────────── */
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: var(--bg); }
+    ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+    @media (prefers-reduced-motion: reduce) {
+      .logo-dot.live { animation: none; }
+      #toast, .btn { transition: none; }
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <div class="logo">
+    <div class="logo-dot live" id="status-dot"></div>
+    AI Hook Monitor
+  </div>
+  <div class="header-spacer"></div>
+  <span class="header-meta" id="last-updated">—</span>
+  <button class="btn" id="btn-refresh" onclick="fetchAll()">↺ Refresh</button>
+  <button class="btn" id="btn-auto" onclick="toggleAuto()">Auto-refresh: off</button>
+  <button class="btn btn-danger" id="btn-clear" onclick="clearLogs()">Clear logs</button>
+</header>
+
+<div class="stats" id="stats-row">
+  <div class="stat"><div class="stat-label">Total logs</div><div class="stat-value" id="s-total">—</div></div>
+  <div class="stat"><div class="stat-label">Providers</div><div class="stat-value" id="s-providers">—</div><div class="stat-sub" id="s-provider-list" style="display:flex;flex-wrap:wrap;gap:4px;margin-top:2px"></div></div>
+  <div class="stat"><div class="stat-label">Input tokens</div><div class="stat-value" id="s-tokens-in">—</div></div>
+  <div class="stat"><div class="stat-label">Output tokens</div><div class="stat-value" id="s-tokens-out">—</div></div>
+  <div class="stat"><div class="stat-label">Est. cost</div><div class="stat-value" id="s-cost">—</div><div class="stat-sub">USD</div></div>
+  <div class="stat"><div class="stat-label">Top model</div><div class="stat-value" style="font-size:1rem;font-family:ui-monospace,monospace" id="s-top-model">—</div></div>
+</div>
+
+<div class="filters">
+  <span class="filter-label">Filter</span>
+  <select class="filter-select" id="f-provider" onchange="fetchLogs()">
+    <option value="">All providers</option>
+  </select>
+  <input class="filter-input" id="f-model" placeholder="Model…" oninput="debounceFilter()" style="width:160px">
+  <select class="filter-select" id="f-limit" onchange="fetchLogs()">
+    <option value="50">Last 50</option>
+    <option value="100">Last 100</option>
+    <option value="250">Last 250</option>
+    <option value="500">Last 500</option>
+  </select>
+  <div class="filters-spacer"></div>
+  <span class="header-meta" id="row-count" style="margin-right:8px">—</span>
+</div>
+
+<div class="table-wrap">
+  <table>
+    <thead>
+      <tr>
+        <th>Time</th>
+        <th>Provider</th>
+        <th>Model</th>
+        <th>Event</th>
+        <th style="text-align:right">In</th>
+        <th style="text-align:right">Out</th>
+        <th style="text-align:right">Total</th>
+        <th style="text-align:right">Cost $</th>
+        <th>Session</th>
+      </tr>
+    </thead>
+    <tbody id="log-body">
+      <tr><td colspan="9"><div class="empty"><div class="empty-icon">◌</div><div class="empty-title">Loading…</div></div></td></tr>
+    </tbody>
+  </table>
+</div>
+
+<div id="toast"></div>
+
+<script>
+  let autoTimer = null
+
+  // ── Helpers ──────────────────────────────────────────────────────────────
+
+  function fmt(n) {
+    if (n === undefined || n === null) return '<span style="color:var(--muted)">—</span>'
+    if (n >= 1_000_000) return (n/1_000_000).toFixed(1) + 'M'
+    if (n >= 1_000)     return (n/1_000).toFixed(1) + 'k'
+    return String(n)
+  }
+
+  function fmtCost(v) {
+    if (v === undefined || v === null || v === 0) return '<span style="color:var(--muted)">—</span>'
+    return '$' + v.toFixed(4)
+  }
+
+  function relTime(iso) {
+    const diff = Math.floor((Date.now() - new Date(iso).getTime()) / 1000)
+    if (diff < 5)   return 'just now'
+    if (diff < 60)  return diff + 's ago'
+    if (diff < 3600) return Math.floor(diff/60) + 'm ago'
+    if (diff < 86400) return Math.floor(diff/3600) + 'h ago'
+    return new Date(iso).toLocaleString()
+  }
+
+  function fmtAbsTime(iso) {
+    const d = new Date(iso)
+    return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+  }
+
+  function providerBadge(p) {
+    const cls = {
+      claude: 'badge-claude',
+      claudecode: 'badge-claudecode',
+      openai: 'badge-openai',
+      codex: 'badge-openai',
+      opencode: 'badge-opencode',
+    }[p] || 'badge-unknown'
+    return `<span class="badge ${cls}">${p}</span>`
+  }
+
+  function eventPill(e) {
+    const cls = {
+      stop:             'pill-stop',
+      prompt_submit:    'pill-prompt_submit',
+      session_start:    'pill-session_start',
+      sessionstart:     'pill-session_start',   // legacy entries
+      userpromptsubmit: 'pill-prompt_submit',   // legacy entries
+      message:          'pill-message',
+      completion:       'pill-completion',
+      'chat.completion':'pill-completion',
+    }[e] || 'pill-default'
+    return `<span class="pill ${cls}">${e}</span>`
+  }
+
+  function numFmt(n) {
+    if (n === undefined || n === null) return '<span style="color:var(--muted)">—</span>'
+    return `<span>${Number(n).toLocaleString()}</span>`
+  }
+
+  let filterDebounce = null
+  function debounceFilter() {
+    clearTimeout(filterDebounce)
+    filterDebounce = setTimeout(fetchLogs, 300)
+  }
+
+  // ── Data fetching ─────────────────────────────────────────────────────────
+
+  async function fetchAll() {
+    await Promise.all([fetchStats(), fetchLogs()])
+    document.getElementById('last-updated').textContent =
+      'Updated ' + new Date().toLocaleTimeString()
+  }
+
+  async function fetchStats() {
+    try {
+      const r = await fetch('/api/stats')
+      const d = await r.json()
+
+      const providers = d.providers || []
+      const stats = d.stats || []
+
+      document.getElementById('s-total').textContent =
+        stats.reduce((a, s) => a + s.calls, 0).toLocaleString()
+
+      document.getElementById('s-providers').textContent = providers.length
+      document.getElementById('s-provider-list').innerHTML = providers.map(providerBadge).join('')
+
+      const totalIn  = stats.reduce((a, s) => a + (s.total_input_tokens || 0), 0)
+      const totalOut = stats.reduce((a, s) => a + (s.total_output_tokens || 0), 0)
+      const totalCost = stats.reduce((a, s) => a + (s.total_cost_usd || 0), 0)
+
+      document.getElementById('s-tokens-in').textContent  = totalIn  ? Number(totalIn).toLocaleString()  : '—'
+      document.getElementById('s-tokens-out').textContent = totalOut ? Number(totalOut).toLocaleString() : '—'
+      document.getElementById('s-cost').textContent = totalCost ? '$' + totalCost.toFixed(4) : '—'
+
+      // top model = most calls among entries that have real token data (or any named model != 'claude-code')
+      const realModels = stats.filter(s => s.total_tokens > 0 || s.model !== 'claude-code')
+      const top = (realModels.length ? realModels : stats).sort((a, b) => b.calls - a.calls)[0]
+      document.getElementById('s-top-model').textContent = top ? top.model : '—'
+
+      // update provider filter
+      const sel = document.getElementById('f-provider')
+      const cur = sel.value
+      sel.innerHTML = '<option value="">All providers</option>'
+      providers.forEach(p => {
+        const opt = document.createElement('option')
+        opt.value = p; opt.textContent = p
+        if (p === cur) opt.selected = true
+        sel.appendChild(opt)
+      })
+    } catch (e) {
+      document.getElementById('s-total').textContent = 'err'
+    }
+  }
+
+  async function fetchLogs() {
+    const provider = document.getElementById('f-provider').value
+    const model    = document.getElementById('f-model').value.trim()
+    const limit    = document.getElementById('f-limit').value
+
+    const params = new URLSearchParams({ limit })
+    if (provider) params.set('provider', provider)
+    if (model)    params.set('model', model)
+
+    try {
+      const r = await fetch('/api/logs?' + params)
+      const d = await r.json()
+
+      document.getElementById('row-count').textContent =
+        `${d.returned} of ${d.total} logs`
+
+      const tbody = document.getElementById('log-body')
+
+      if (!d.logs || d.logs.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="9"><div class="empty">
+          <div class="empty-icon">◎</div>
+          <div class="empty-title">No logs yet</div>
+          <div class="empty-sub">Start Claude Code or send a hook to <code>POST /api/hook</code></div>
+        </div></td></tr>`
+        return
+      }
+
+      tbody.innerHTML = d.logs.map(log => {
+        const t = log.tokens || {}
+        return `<tr>
+          <td class="col-time" title="${log.received_at}">${fmtAbsTime(log.received_at)}<br><span style="font-size:.65rem;opacity:.6">${relTime(log.received_at)}</span></td>
+          <td>${providerBadge(log.provider)}</td>
+          <td class="col-model">${log.model}</td>
+          <td>${eventPill(log.event)}</td>
+          <td class="col-num">${numFmt(t.input)}</td>
+          <td class="col-num">${numFmt(t.output)}</td>
+          <td class="col-num">${numFmt(t.total)}</td>
+          <td class="col-cost">${fmtCost(log.cost_usd)}</td>
+          <td class="col-session" title="${log.session_id || ''}">${log.session_id || '<span style="color:var(--muted)">—</span>'}</td>
+        </tr>`
+      }).join('')
+    } catch (e) {
+      document.getElementById('log-body').innerHTML =
+        `<tr><td colspan="9"><div class="empty"><div class="empty-title">Could not reach API</div><div class="empty-sub">${e.message}</div></div></td></tr>`
+    }
+  }
+
+  // ── Actions ───────────────────────────────────────────────────────────────
+
+  async function clearLogs() {
+    if (!confirm('Clear all logs? This also erases the log file.')) return
+    await fetch('/api/logs', { method: 'DELETE' })
+    toast('Logs cleared')
+    fetchAll()
+  }
+
+  function toggleAuto() {
+    const btn = document.getElementById('btn-auto')
+    const dot = document.getElementById('status-dot')
+    if (autoTimer) {
+      clearInterval(autoTimer)
+      autoTimer = null
+      btn.textContent = 'Auto-refresh: off'
+      btn.classList.remove('btn-active')
+      dot.classList.remove('live')
+    } else {
+      autoTimer = setInterval(fetchAll, 5000)
+      btn.textContent = 'Auto-refresh: 5s'
+      btn.classList.add('btn-active')
+      dot.classList.add('live')
+      fetchAll()
+    }
+  }
+
+  function toast(msg) {
+    const el = document.getElementById('toast')
+    el.textContent = msg
+    el.classList.add('show')
+    setTimeout(() => el.classList.remove('show'), 2500)
+  }
+
+  // ── Init ──────────────────────────────────────────────────────────────────
+  fetchAll()
+</script>
+</body>
+</html>

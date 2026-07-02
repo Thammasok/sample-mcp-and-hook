@@ -132,10 +132,18 @@ function normalizeOpenCodePayload(body: Record<string, unknown>): Partial<AIHook
 }
 
 function normalizeClaudeCodePayload(body: Record<string, unknown>): Partial<AIHookLog> {
+  const hookEventMap: Record<string, string> = {
+    sessionstart: 'session_start',
+    userpromptsubmit: 'prompt_submit',
+    stop: 'stop',
+  }
   let event = 'session_start'
   if (body.stop_hook_active !== undefined) event = 'stop'
   else if (body.prompt !== undefined) event = 'prompt_submit'
-  else if (typeof body.hook_event_name === 'string') event = body.hook_event_name.toLowerCase()
+  else if (typeof body.hook_event_name === 'string') {
+    const key = body.hook_event_name.toLowerCase()
+    event = hookEventMap[key] ?? key
+  }
 
   return {
     provider: 'claudecode',
@@ -197,6 +205,10 @@ function appendLog(log: AIHookLog): void {
   saveLogsToFile()
   printLog(log)
 }
+
+// ─── Static dashboard ────────────────────────────────────────────────────────
+
+app.use(express.static(path.join(process.cwd(), 'public')))
 
 // ─── Routes ───────────────────────────────────────────────────────────────────
 
