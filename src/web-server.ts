@@ -91,6 +91,14 @@ const MODEL_PRICING: Record<string, [number, number, number, number]> = {
   'claude-3-haiku':    [0.25, 1.25, 0.025, 0.30],
 }
 
+// Short aliases (e.g. "opus[1m]", "sonnet") that Claude Code may report via the
+// fallback path. Checked only after the exact-key lookup fails.
+const MODEL_ALIASES: Array<[string, keyof typeof MODEL_PRICING]> = [
+  ['opus', 'claude-opus-4'],
+  ['sonnet', 'claude-sonnet-4'],
+  ['haiku', 'claude-haiku-4'],
+]
+
 function estimateCost(model: string, tokens: TokenUsage): number | undefined {
   if (!tokens.input && !tokens.output) return undefined
   const lm = model.toLowerCase()
@@ -99,6 +107,15 @@ function estimateCost(model: string, tokens: TokenUsage): number | undefined {
     if (lm.includes(key)) {
       pricing = p
       break
+    }
+  }
+  // Fall back to short aliases (e.g. "opus[1m]") when no exact key matched
+  if (!pricing) {
+    for (const [alias, key] of MODEL_ALIASES) {
+      if (lm.includes(alias)) {
+        pricing = MODEL_PRICING[key]
+        break
+      }
     }
   }
   if (!pricing) return undefined
